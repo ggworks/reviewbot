@@ -1,13 +1,17 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, BackgroundTasks, Request
 import hmac
 import hashlib
 import requests
+import json
+from dotenv import load_dotenv
+load_dotenv('./env/.env.cr.local')
 
 import openai
 
 import os
 import logging
 import logging.config
+
 cwd = os.path.dirname(__file__)
 log_config = f"{cwd}/log.ini"
 logging.config.fileConfig(log_config, disable_existing_loggers=False)
@@ -16,70 +20,94 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-
-SECRET_TOKEN = "helloworld"
+GITHUB_WEBHOOK_SECRET = "helloworld"
 OPENAI_API_KEY = os.getenv("API_KEY")
-GITLAB_API_TOKEN =  os.getenv("GITLAB_API_TOKEN")
-GITLAB_API_ORIGIN =  os.getenv("GITLAB_API_ORIGIN")
+GITHUB_API_TOKEN = os.getenv("GITHUB_API_TOKEN")
 
+OPENAI_API_PROXY = os.getenv("API_PROXY", None)
 
 openai.api_key = OPENAI_API_KEY
+openai.proxy = OPENAI_API_PROXY
 
 
-def get_diff(project_id, commit_id):
-    commit_url = f"{GITLAB_API_ORIGIN}/api/v4/projects/{project_id}/repository/commits/{commit_id}/diff"
+def get_review(diff):
+
+    patch = json.dumps(diff["patch"])
+    prompt = f"""
+    Review the commit provided for quality, logic, and security,  commit patch: \n{patch}\n
+    """
+
+    model = "gpt-3.5-turbo"
+    messages = [{"role": "system", "content": "You are a helpful Code Reviewer."},
+                {"role": "user", "content": prompt}]
+
+    try:
+        response = openai.ChatCompletion.create(
+            model=model,
+            messages=messages
+        )
+        review = response['choices'][0]['message']['content']
+        return review
+
+    except openai.error.Timeout as e:
+        logger.error(f"OpenAI request timed out: {e}")
+    except openai.error.APIConnectionError as e:
+        logger.error(f"OpenAI API connection error: {e}")
+    except openai.error.InvalidRequestError as e:
+        logger.error(f"OpenAI invalid request error: {e}")
+
+
+def get_diff(owner, repo, sha):
+    commit_url = f"https://api.github.com/repos/{owner}/{repo}/commits/{sha}"
     headers = {
-        "PRIVATE-TOKEN": GITLAB_API_TOKEN
+        "Authorization": f"Bearer {GITHUB_API_TOKEN}",
+        "Accept": "application/vnd.github+json",
     }
     response = requests.get(commit_url, headers=headers)
-    diffs = response.json()
-    # diffs will be a list of changes, you might need to format it properly
+    commit_data = response.json()
+    diffs = commit_data['files']  # Github includes diff in the commit data
     return diffs
 
 
-@app.post("/gitlab-webhook")
-async def gitlab_webhook(request: Request):
+def review_and_comment(owner, repo, sha, diff):
+
+    review = get_review(diff)
+    if not review:
+        return
+
+    filename = diff["filename"]
+
+    commemt = f"*Auto Review*:\nfile:{filename}\nreview:\n{review}"
+    # Add review as a comment to the commit
+    commit_url = f"https://api.github.com/repos/{owner}/{repo}/commits/{sha}/comments"
+    comment_data = {
+        "body": commemt
+    }
+    headers = {
+        "Authorization": f"Bearer {GITHUB_API_TOKEN}",
+        "Accept": "application/vnd.github+json",
+    }
+    response = requests.post(commit_url, json=comment_data, headers=headers)
+
+    if response.status_code != 201:
+        logger.error(f"Failed to add comment to commit: {response.text}")
+
+
+@app.post("/github-webhook")
+async def github_webhook(request: Request, background_tasks: BackgroundTasks):
 
     # Verify signature
-    signature = request.headers.get("X-Gitlab-Token")
+    signature = request.headers.get("X-Hub-Signature-256")
     body = await request.body()
-    # expected_signature = hmac.new(SECRET_TOKEN.encode(), body, hashlib.sha256).hexdigest()
-    # if not hmac.compare_digest(expected_signature, signature):
-    #     return {"message": "Invalid signature"}
+    expected_signature = "sha256=" + hmac.new(GITHUB_WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected_signature, signature):
+        return {"message": "Invalid signature"}
 
     # Process webhook
     data = await request.json()
     for commit in data.get('commits', []):
-        message = commit.get('message')
-        diff = get_diff(data['project']['id'], commit['id'])
-        logger.info(f"Commit message: {message}")
-
-        # Send code to OpenAI for review
-        model = "gpt-3.5-turbo"  # You can use other models
-        messages = [{"role": "system", "content": "You are a helpful code assistant."},
-                    {"role": "user", "content": f"Review this git code commit: \n```python\n{diff}\n```"}]
-        response = openai.ChatCompletion.create(
-        model=model,
-        messages=messages
-        )
-
-        review = response['choices'][0]['message']['content']
-        logger.info(f"Review: {review}")
-
-        # Add review as a comment to the commit
-        project_id = data['project']['id']
-        commit_id = commit['id']
-        comment_url = f"{GITLAB_API_ORIGIN}/api/v4/projects/{project_id}/repository/commits/{commit_id}/comments"
-        comment_data = {
-            "note": review
-        }
-        headers = {
-            "PRIVATE-TOKEN": GITLAB_API_TOKEN
-        }
-        response = requests.post(comment_url, json=comment_data, headers=headers)
-
-        if response.status_code != 201:
-            logger.error(f"Failed to add comment to commit: {response.text}")
+        diffs = get_diff(data['repository']['full_name'], commit['id'])
+        background_tasks.add_task(review_and_comment, data['repository']['full_name'], commit["sha"], diffs)
 
     # Return success message
     return {"message": "Webhook received and processed successfully"}

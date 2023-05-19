@@ -7,7 +7,7 @@ def kill_app():
         try:
             if proc.name() == "uvicorn":
                 cmdline = " ".join(proc.cmdline())
-                if "--port 8010" in cmdline:
+                if ".env.cr.local" in cmdline:
                     proc.send_signal(signal.SIGINT)
                     break
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
