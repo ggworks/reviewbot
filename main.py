@@ -157,11 +157,15 @@ async def gitlab_webhook(request: Request, background_tasks: BackgroundTasks):
 
     # Verify signature
     signature = request.headers.get("X-Gitlab-Token")
-    body = await request.body()
-    expected_signature = hmac.new(GITLAB_WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(expected_signature, signature):
+    if not signature or signature != GITLAB_WEBHOOK_SECRET:
         logger.error(f"Invalid signature")
         return {"message": "Invalid signature"}
+
+    body = await request.body()
+    # expected_signature = hmac.new(GITLAB_WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
+    # if not hmac.compare_digest(expected_signature, signature):
+    #     logger.error(f"Invalid signature")
+    #     return {"message": "Invalid signature"}
 
     # Process webhook
     data = await request.json()
