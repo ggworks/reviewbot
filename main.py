@@ -25,6 +25,18 @@ GITLAB_API_ORIGIN =  os.getenv("GITLAB_API_ORIGIN")
 
 openai.api_key = OPENAI_API_KEY
 
+
+def get_diff(project_id, commit_id):
+    commit_url = f"{GITLAB_API_ORIGIN}/api/v4/projects/{project_id}/repository/commits/{commit_id}/diff"
+    headers = {
+        "PRIVATE-TOKEN": GITLAB_API_TOKEN
+    }
+    response = requests.get(commit_url, headers=headers)
+    diffs = response.json()
+    # diffs will be a list of changes, you might need to format it properly
+    return diffs
+
+
 @app.post("/gitlab-webhook")
 async def gitlab_webhook(request: Request):
 
@@ -39,15 +51,16 @@ async def gitlab_webhook(request: Request):
     data = await request.json()
     for commit in data.get('commits', []):
         message = commit.get('message')
+        diff = get_diff(data['project']['id'], commit['id'])
         logger.info(f"Commit message: {message}")
 
-        # Send message to OpenAI for review
+        # Send code to OpenAI for review
         model = "gpt-3.5-turbo"  # You can use other models
         messages = [{"role": "system", "content": "You are a helpful code assistant."},
-                    {"role": "user", "content": f"Review this git code commit message: {message}"}]
+                    {"role": "user", "content": f"Review this git code commit: \n```python\n{diff}\n```"}]
         response = openai.ChatCompletion.create(
-          model=model,
-          messages=messages
+        model=model,
+        messages=messages
         )
 
         review = response['choices'][0]['message']['content']
