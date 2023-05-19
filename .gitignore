@@ -1,0 +1,9 @@
+env.json
+__pycache__
+.vscode
+log
+.idea/
+
+local
+.DS_Store
+.env*
