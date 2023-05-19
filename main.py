@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-GITHUB_WEBHOOK_SECRET = "helloworld"
+GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
 OPENAI_API_KEY = os.getenv("API_KEY")
 GITHUB_API_TOKEN = os.getenv("GITHUB_API_TOKEN")
 
