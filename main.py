@@ -110,7 +110,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
     for commit in data.get('commits', []):
         diffs = get_diff(data['repository']['full_name'], commit['id'])
         for diff in diffs:
-            background_tasks.add_task(review_and_comment, data['repository']['full_name'], commit["sha"], diff)
+            background_tasks.add_task(review_and_comment, data['repository']['full_name'], commit["id"], diff)
 
     # Return success message
     return {"message": "Webhook received and processed successfully"}
