@@ -2,7 +2,8 @@ from fastapi import FastAPI, Request
 import hmac
 import hashlib
 import requests
-from openai import OpenAI, ChatCompletion
+
+import openai
 
 import os
 import logging
@@ -22,7 +23,7 @@ GITLAB_API_TOKEN =  os.getenv("GITLAB_API_TOKEN")
 GITLAB_API_ORIGIN =  os.getenv("GITLAB_API_ORIGIN")
 
 
-openai = OpenAI(api_key=OPENAI_API_KEY)
+openai.api_key = OPENAI_API_KEY
 
 @app.post("/gitlab-webhook")
 async def gitlab_webhook(request: Request):
@@ -42,9 +43,9 @@ async def gitlab_webhook(request: Request):
 
         # Send message to OpenAI for review
         model = "gpt-3.5-turbo"  # You can use other models
-        messages = [{"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": f"Review this code commit message: {message}"}]
-        response = ChatCompletion.create(
+        messages = [{"role": "system", "content": "You are a helpful code assistant."},
+                    {"role": "user", "content": f"Review this git code commit message: {message}"}]
+        response = openai.ChatCompletion.create(
           model=model,
           messages=messages
         )
