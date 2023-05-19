@@ -82,7 +82,7 @@ def review_and_comment(repo_full_name, sha, diff):
 
     filename = diff["filename"]
 
-    commemt = f"*Auto Review*:\n`{filename}`\n*review*:\n{review}"
+    commemt = f"#### *Auto Review*:\n`{filename}`\n#### *review*:\n{review}"
     commit_url = f"https://api.github.com/repos/{repo_full_name}/commits/{sha}/comments"
     comment_data = {
         "body": commemt,
