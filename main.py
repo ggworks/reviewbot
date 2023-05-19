@@ -5,7 +5,6 @@ import requests
 import json
 from dotenv import load_dotenv
 load_dotenv('./env/.env.cr.local')
-
 import openai
 
 import os
@@ -57,8 +56,8 @@ def get_review(diff):
         logger.error(f"OpenAI invalid request error: {e}")
 
 
-def get_diff(owner, repo, sha):
-    commit_url = f"https://api.github.com/repos/{owner}/{repo}/commits/{sha}"
+def get_diff(repo_full_name, sha):
+    commit_url = f"https://api.github.com/repos/{repo_full_name}/commits/{sha}"
     headers = {
         "Authorization": f"Bearer {GITHUB_API_TOKEN}",
         "Accept": "application/vnd.github+json",
@@ -69,7 +68,7 @@ def get_diff(owner, repo, sha):
     return diffs
 
 
-def review_and_comment(owner, repo, sha, diff):
+def review_and_comment(repo_full_name, sha, diff):
 
     review = get_review(diff)
     if not review:
@@ -77,11 +76,14 @@ def review_and_comment(owner, repo, sha, diff):
 
     filename = diff["filename"]
 
-    commemt = f"*Auto Review*:\nfile:{filename}\nreview:\n{review}"
+    commemt = f"*Auto Review*:\n`{filename}`\n*review*:\n{review}"
     # Add review as a comment to the commit
-    commit_url = f"https://api.github.com/repos/{owner}/{repo}/commits/{sha}/comments"
+    commit_url = f"https://api.github.com/repos/{repo_full_name}/commits/{sha}/comments"
     comment_data = {
-        "body": commemt
+        "body": commemt,
+        "path": diff['filename'],
+        "position": diff['changes'],
+        "line": diff['patch'].count("\n") + 1
     }
     headers = {
         "Authorization": f"Bearer {GITHUB_API_TOKEN}",
@@ -107,7 +109,8 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
     data = await request.json()
     for commit in data.get('commits', []):
         diffs = get_diff(data['repository']['full_name'], commit['id'])
-        background_tasks.add_task(review_and_comment, data['repository']['full_name'], commit["sha"], diffs)
+        for diff in diffs:
+            background_tasks.add_task(review_and_comment, data['repository']['full_name'], commit["sha"], diff)
 
     # Return success message
     return {"message": "Webhook received and processed successfully"}
