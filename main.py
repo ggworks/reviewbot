@@ -34,16 +34,65 @@ openai.api_key = OPENAI_API_KEY
 openai.proxy = OPENAI_API_PROXY
 
 
-def get_review(patch):
+def should_skip_review(filename):
+    # list of file extensions for which review should be skipped
+    skip_extensions = ['.txt', '.json', '.xml', '.csv', '.md', '.log', '.ini', '.yml', '.pyc', '.class']
+
+    asset_extensions = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.eot', '.ttf', '.woff', '.woff2']
+
+    # list of file names to be skipped
+    skip_files = ['README.md', 'LICENSE', '.gitignore', 'package-lock.json', 'yarn.lock', 'Makefile', 'Dockerfile']
+
+    # list of folders to be skipped
+    skip_folders = ['__pycache__', '.git', '.vscode', 'node_modules', 'dist', 'build']
+
+    # get file extension
+    file_extension = os.path.splitext(filename)[-1]
+
+    # get file name
+    file_name = os.path.basename(filename)
+
+    # check if the file is in a skip folder
+    for folder in skip_folders:
+        if folder in filename.split(os.path.sep):
+            return True
+
+    # check if file extension is in the skip list
+    if file_extension in skip_extensions or file_name in skip_files:
+        return True
+
+    if file_extension in asset_extensions:
+        return True
+
+    return False
+
+
+def get_review(patch, filename):
     if type(patch) != str:
         patch = json.dumps(patch)
 
-    prompt = f"""
-    Review the commit provided for quality, logic, and security,  commit patch: \n{patch}\n
+    # logger.info(f"filename:\n {filename}\n")
+    # logger.info(f"Patch:\n {patch}\n")
+
+    sys_prompt = """
+As a Code Reviewer, your task is to assist users in reviewing their git commit diffs with a focus on four aspects: code score, quality, logic, and security. Your comments will be sent to GitHub, so make sure to provide meaningful and useful feedback. If there are no significant observations to add, simply return "no issue".
+
+Please structure your reply in the following four parts in markdown format:
+
+"Code Score": Provide a score between 1-10, reflecting the overall quality of the code including readability, conciseness, and efficiency.
+
+"Quality": Give feedback on the code quality, if applicable. This might encompass the code's structure, style, and adherence to best practices. If there are no issues, reply with "no issue".
+
+"Logic": Review the logic of the code. If applicable, provide recommendations for correctness or improvements in logic. If there are no issues, reply with "no issue".
+
+"Security": Evaluate the security of the code, including potential vulnerabilities, security risks, or neglected security practices. If there are no issues, reply with "no issue".
+
     """
 
+    prompt = f"commmit patch is:\n{patch}\n"
+
     model = "gpt-3.5-turbo"
-    messages = [{"role": "system", "content": "You are a helpful Code Reviewer."},
+    messages = [{"role": "system", "content": sys_prompt},
                 {"role": "user", "content": prompt}]
 
     try:
@@ -59,6 +108,8 @@ def get_review(patch):
     except openai.error.APIConnectionError as e:
         logger.error(f"OpenAI API connection error: {e}")
     except openai.error.InvalidRequestError as e:
+        logger.error(f"OpenAI invalid request error: {e}")
+    except openai.error.RateLimitError as e:
         logger.error(f"OpenAI invalid request error: {e}")
 
 
@@ -76,11 +127,16 @@ def get_diff(repo_full_name, sha):
 
 def review_and_comment(repo_full_name, sha, diff):
 
-    review = get_review(diff["patch"])
+    filename = diff["filename"]
+    if should_skip_review(filename):
+        logger.info(f"Skipping review for {filename}")
+        return
+
+    review = get_review(diff["patch"], filename)
     if not review:
         return
 
-    filename = diff["filename"]
+    # logger.info(f"Review: {review}"
 
     commemt = f"#### *Auto Review*:\n`{filename}`\n#### *review*:\n{review}"
     commit_url = f"https://api.github.com/repos/{repo_full_name}/commits/{sha}/comments"
@@ -137,11 +193,12 @@ def get_gitlab_diff(project_id, commit_id):
 
 
 def review_and_comment_gitlab(project_id, commit_id, diff):
-    review = get_review(diff["diff"])
+    filename = diff["old_path"]
+
+    review = get_review(diff["diff"], filename)
     if not review:
         return
 
-    filename = diff["old_path"]
     comment = f"*Auto Review*:\n\n`{filename}`\n\n*review*:\n\n{review}"
     commit_url = f"{GITLAB_API_ORIGIN}/api/v4/projects/{project_id}/repository/commits/{commit_id}/comments"
     comment_data = {
