@@ -114,6 +114,10 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
     # Process webhook
     data = await request.json()
     for commit in data.get('commits', []):
+        message = commit['message']
+        if '/no-cr' in message:
+            logger.info(f"Skipping commit with '/no-cr' in: {message}, id: {commit['id']}")
+            continue
         diffs = get_diff(data['repository']['full_name'], commit['id'])
         for diff in diffs:
             background_tasks.add_task(review_and_comment, data['repository']['full_name'], commit["id"], diff)
