@@ -14,3 +14,5 @@ GITLAB_WEBHOOK_SECRET = os.getenv("GITLAB_WEBHOOK_SECRET")
 
 
 MONGO_URL = os.getenv("MONGO_URL")
+
+TEST_APP = os.getenv("TEST_APP") == "true"
