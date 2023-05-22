@@ -3,10 +3,8 @@ import hmac
 import hashlib
 import requests
 import json
-from dotenv import load_dotenv
-load_dotenv('./env/.env.cr.local')
+import config
 import openai
-
 import os
 import logging
 import logging.config
@@ -19,19 +17,12 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-OPENAI_API_KEY = os.getenv("API_KEY")
-OPENAI_API_PROXY = os.getenv("API_PROXY", None)
+from config import *
 
-GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
-GITHUB_API_TOKEN = os.getenv("GITHUB_API_TOKEN")
+openai.api_key = config.OPENAI_API_KEY
+openai.proxy = config.OPENAI_API_PROXY
 
-GITLAB_API_TOKEN = os.getenv("GITLAB_API_TOKEN")
-GITLAB_API_ORIGIN = os.getenv("GITLAB_API_ORIGIN")
-GITLAB_WEBHOOK_SECRET = os.getenv("GITLAB_WEBHOOK_SECRET")
-
-
-openai.api_key = OPENAI_API_KEY
-openai.proxy = OPENAI_API_PROXY
+from cr_db import cr_db
 
 
 def should_skip_review(filename):
@@ -171,12 +162,20 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
     data = await request.json()
     for commit in data.get('commits', []):
         message = commit['message']
+        commit_id = commit['id']
         if '/no-cr' in message:
-            logger.info(f"Skipping commit with '/no-cr' in: {message}, id: {commit['id']}")
+            logger.info(f"Skipping commit with '/no-cr' in: {message}, id: {commit_id}")
             continue
-        diffs = get_diff(data['repository']['full_name'], commit['id'])
+        
+        if cr_db.get_reviewed_commit(commit_id, "github"):
+            logger.info(f"Skipping commit already reviewed: {commit_id}")
+            continue
+        
+        diffs = get_diff(data['repository']['full_name'], commit_id)
         for diff in diffs:
-            background_tasks.add_task(review_and_comment, data['repository']['full_name'], commit["id"], diff)
+            background_tasks.add_task(review_and_comment, data['repository']['full_name'], commit_id, diff)
+            
+        cr_db.add_reviewed_commit(commit_id, data['repository']['full_name'], "github")
 
     # Return success message
     return {"message": "Webhook received and processed successfully"}
@@ -231,9 +230,15 @@ async def gitlab_webhook(request: Request, background_tasks: BackgroundTasks):
     # Process webhook
     data = await request.json()
     for commit in data.get('commits', []):
+        commit_id = commit['id']
         diffs = get_gitlab_diff(data['project']['id'], commit['id'])
+        if cr_db.get_reviewed_commit(commit_id, "gitlab"):
+            logger.info(f"Skipping commit already reviewed: {commit_id}")
+            continue
         for diff in diffs:
             background_tasks.add_task(review_and_comment_gitlab, data['project']['id'], commit["id"], diff)
+            
+        cr_db.add_reviewed_commit(commit_id, data['project']['id'], "gitlab")
 
     # Return success message
     return {"message": "Webhook received and processed successfully"}
