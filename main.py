@@ -24,7 +24,7 @@ import chat
 
 logger.info(f"TEST_APP: {TEST_APP}")
 
-def get_diff(repo_full_name, sha):
+def get_file_changes(repo_full_name, sha):
     commit_url = f"https://api.github.com/repos/{repo_full_name}/commits/{sha}"
     headers = {
         "Authorization": f"Bearer {GITHUB_API_TOKEN}",
@@ -32,20 +32,18 @@ def get_diff(repo_full_name, sha):
     }
     response = requests.get(commit_url, headers=headers)
     commit_data = response.json()
-    diffs = commit_data['files']  # Github includes diff in the commit data
-    return diffs
+    return commit_data['files']  # Github includes diff in the commit data
 
-
-def review_and_comment(repo_full_name, sha, diff):
-    filename = diff["filename"]
+def review_and_comment(repo_full_name, sha, file_change):
+    filename = file_change["filename"]
     if utils.should_skip_review(filename):
         logger.info(f"Skipping review for {filename}")
         return
 
-    patch = diff["patch"]
+    patch = file_change["patch"]
     if TEST_APP:
         logger.info(f"filename:\n {filename}\n")
-        logger.info(f"Patch:\n {patch}\n")
+        logger.info(f"patch:\n {patch}\n")
 
     review = chat.get_review(patch, filename)
     if not review:
@@ -60,8 +58,8 @@ def review_and_comment(repo_full_name, sha, diff):
     comment_data = {
         "body": commemt,
         "path": filename,
-        "position": diff['changes'],
-        "line": diff['patch'].count("\n") + 1
+        "position": file_change['changes'],
+        "line": file_change['patch'].count("\n") + 1
     }
     headers = {
         "Authorization": f"Bearer {GITHUB_API_TOKEN}",
@@ -97,9 +95,9 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
             logger.info(f"Skipping commit already reviewed: {commit_id}")
             continue
         
-        diffs = get_diff(data['repository']['full_name'], commit_id)
-        for diff in diffs:
-            background_tasks.add_task(review_and_comment, data['repository']['full_name'], commit_id, diff)
+        file_changes = get_file_changes(data['repository']['full_name'], commit_id)
+        for file_change in file_changes:
+            background_tasks.add_task(review_and_comment, data['repository']['full_name'], commit_id, file_change)
             
         cr_db.add_reviewed_commit(commit_id, data['repository']['full_name'], "github")
 
