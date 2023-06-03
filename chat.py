@@ -9,12 +9,8 @@ openai.api_key = config.OPENAI_API_KEY
 openai.proxy = config.OPENAI_API_PROXY
 
 
-def get_review(patch, filename):
-    if type(patch) != str:
-        patch = json.dumps(patch)
-
-    sys_prompt = """
-As a Code Reviewer, your task is to assist users in reviewing their git commit diffs with a focus on four aspects: code score, quality, logic, and security. Your comments will be sent to GitHub, so make sure to provide meaningful and useful feedback. If there are no significant observations to add, simply return "no issue".
+sys_prompt = """
+As a Code Reviewer, your task is to assist users in reviewing their git commit with a focus on four aspects: code score, quality, logic, and security. Your comments will be sent to GitHub, so make sure to provide meaningful and useful feedback. If there are no significant observations to add, simply return "no issue".
 
 Please structure your reply in the following four parts in markdown format:
 
@@ -26,10 +22,10 @@ Please structure your reply in the following four parts in markdown format:
 
 "Security": Evaluate the security of the code, including potential vulnerabilities, security risks, or neglected security practices. If there are no issues, reply with "no issue".
 
-    """
+"""
 
-    prompt = f"commmit patch is:\n{patch}\n"
 
+def get_chat_answer(prompt):
     model = "gpt-3.5-turbo"
     messages = [{"role": "system", "content": sys_prompt},
                 {"role": "user", "content": prompt}]
@@ -51,3 +47,14 @@ Please structure your reply in the following four parts in markdown format:
     except openai.error.RateLimitError as e:
         logger.error(f"OpenAI invalid request error: {e}")
 
+def get_review_for_patch(patch, filename):
+    if type(patch) != str:
+        patch = json.dumps(patch)
+
+    prompt = f"commmit patch is:\n{patch}\n"
+    return get_chat_answer(prompt)
+
+
+def get_review_for_content(content: str, filename: str):
+    prompt = f"commmit content is:\n{content}\n"
+    return get_chat_answer(prompt)

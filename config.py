@@ -16,3 +16,6 @@ GITLAB_WEBHOOK_SECRET = os.getenv("GITLAB_WEBHOOK_SECRET")
 MONGO_URL = os.getenv("MONGO_URL")
 
 TEST_APP = os.getenv("TEST_APP") == "true"
+
+lang_server_ts = os.getenv("lang_server_ts", None)
+lang_server = {"typescript": lang_server_ts}

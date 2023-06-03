@@ -2,6 +2,7 @@ import os
 import re
 import requests
 from config import *
+import lsp_utils.lsp as lsp
 
 
 def should_skip_review(filename):
@@ -61,6 +62,50 @@ def parse_diff(patch):
         line_count = int(match.group(2))
 
         # Add all the lines in the hunk to the list
-        changed_lines.extend(range(start_line, start_line + line_count))
+        changed_lines.append([start_line, start_line + line_count])
 
     return changed_lines
+
+
+def get_language_type(filename):
+    extension = filename.rsplit('.', 1)[-1].lower()
+
+    language_types = {
+        'py': 'python',
+        'js': 'javascript',
+        'java': 'java',
+        'cpp': 'cpp',
+        'css': 'css',
+        'php': 'php',
+        'ts': 'typescript',
+        'tsx': 'typescript',
+    }
+
+    return language_types.get(extension, 'Unknown')
+
+
+def is_range_overlapping(range1, line_range):
+    return (range1["start"]["line"] <= line_range[1]) and (range1["end"]["line"] >= line_range[0])
+
+
+def get_symbols_intersecting_with_range(symbols, line_range):
+    intersecting_symbols = []
+
+    for symbol in symbols:
+        if not 'range' in symbol or not is_range_overlapping(symbol["range"], line_range):
+            continue
+        if symbol['kind'] in [lsp.SymbolKind.Function, lsp.SymbolKind.Method, lsp.SymbolKind.Constructor, lsp.SymbolKind.
+                              Constant, lsp.SymbolKind.Variable, lsp.SymbolKind.Enum, lsp.SymbolKind.Struct]:
+            intersecting_symbols.append([symbol])
+            continue
+
+        children_paths = get_symbols_intersecting_with_range(symbol["children"], line_range) if "children" in symbol else []
+        if len(children_paths):
+            for child_path in children_paths:
+                new_path = [symbol]
+                new_path.extend(child_path)
+                intersecting_symbols.append(new_path)
+        else:
+            intersecting_symbols.append([symbol])
+
+    return intersecting_symbols
